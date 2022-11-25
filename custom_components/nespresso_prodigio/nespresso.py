@@ -262,64 +262,51 @@ class NespressoClient:
     async def get_device_data(self):
         for bundle in self.bundles:
             device = bundle.device
-            try:
-                client = self._client_pool.get_client(device)
-                services = await client.services
-                for service in services:
-                    for characteristic in service.characteristics:
-                        _LOGGER.debug("characteristic {}".format(characteristic))
-                        try:
-                            if characteristic.uuid in sensor_decoders:
-                                await self._authenticate(client)
-                                characteristic_data = await client.read_gatt_char(
-                                    characteristic.uuid
-                                )
-                                _LOGGER.debug(
-                                    "{} data {}".format(
-                                        characteristic.uuid, characteristic_data
-                                    )
-                                )
-                                decoded_data = sensor_decoders[
-                                    characteristic.uuid
-                                ].decode_data(characteristic_data)
-                                _LOGGER.debug(
-                                    "{} Got sensordata {}".format(
-                                        device.address, decoded_data
-                                    )
-                                )
-                                bundle.attributes = {**bundle.attributes, **decoded_data}
-                        except Exception as e:
-                            _LOGGER.exception("Failed to read characteristic", e)
-            except Exception as e:
-                _LOGGER.exception("Failed to discover sensors", e)
+            client = self._client_pool.get_client(device)
+            services = await client.services
+            for service in services:
+                for characteristic in service.characteristics:
+                    _LOGGER.debug("characteristic {}".format(characteristic))
+                    if characteristic.uuid in sensor_decoders:
+                        await self._authenticate(client)
+                        characteristic_data = await client.read_gatt_char(
+                            characteristic.uuid
+                        )
+                        _LOGGER.debug(
+                            "{} data {}".format(
+                                characteristic.uuid, characteristic_data
+                            )
+                        )
+                        decoded_data = sensor_decoders[
+                            characteristic.uuid
+                        ].decode_data(characteristic_data)
+                        _LOGGER.debug(
+                            "{} Got sensordata {}".format(
+                                device.address, decoded_data
+                            )
+                        )
+                        bundle.attributes = {**bundle.attributes, **decoded_data}
 
     async def cancel_coffee(self, device: BLEDevice):
         pass
 
     async def make_coffee(self, device: BLEDevice, volume: NespressoVolume = NespressoVolume.LUNGO):
-        try:
-            _LOGGER.debug("make flow a coffee")
-            client = self._client_pool.get_client(device)
-            await self._authenticate(client)
-            try:
-                command = "0305070400000000"
-                # TODO when temp will be used for other machine
-                command += "00"
-                if volume == NespressoVolume.ESPRESSO:
-                    command += "01"
-                elif volume == NespressoVolume.LUNGO:
-                    command += "02"
-                elif volume == NespressoVolume.RISTRETTO:
-                    command += "00"
-                else:
-                    command += "00"
-                await client.write_gatt_char(
-                    CHAR_UUID_COMMAND, binascii.unhexlify(command), True
-                )
-            except Exception as e:
-                _LOGGER.exception("Failed to write characteristic for coffee flow", e)
-        except Exception as e:
-            _LOGGER.exception("Failed to connect for coffee flow", e)
+        _LOGGER.debug("make flow a coffee")
+        client = self._client_pool.get_client(device)
+        await self._authenticate(client)
+        command = "0305070400000000"
+        command += "00"
+        if volume == NespressoVolume.ESPRESSO:
+            command += "01"
+        elif volume == NespressoVolume.LUNGO:
+            command += "02"
+        elif volume == NespressoVolume.RISTRETTO:
+            command += "00"
+        else:
+            command += "00"
+        await client.write_gatt_char(
+            CHAR_UUID_COMMAND, binascii.unhexlify(command), True
+        )
 
 
 async def main():
@@ -330,6 +317,7 @@ async def main():
         await client.discover_nespresso_devices()
         for bundle in client.bundles:
             device = bundle.device
+            await client.make_coffee(device)
             _LOGGER.info("{}".format(device))
 
         await client.get_device_data()
