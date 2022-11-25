@@ -1,0 +1,19 @@
+author:
+  email: humbertogontijo@users.noreply.github.com
+  homepage: https://github.com/humbertogontijo/homeassistant-nespresso-prodigio
+  name: humbertogontijo
+description: Nespresso Prodigio BLE
+files:
+  - custom_components/nespresso_prodigio/__init__.py
+  - custom_components/nespresso_prodigio/select.py
+  - custom_components/nespresso_prodigio/switch.py
+keywords:
+  - coffee
+  - nespresso_prodigio
+  - homeassistant
+  - home-assistant
+  - custom-component
+  - python
+license: MIT License
+name: nespresso_prodigio
+type: component

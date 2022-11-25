@@ -1,0 +1,15 @@
+{
+  "domain": "nespresso_prodigio",
+  "name": "Nespresso Prodigio BLE",
+  "config_flow": true,
+  "documentation": "https://github.com/humbertogontijo/homeassistant-nespresso-prodigio",
+  "issue_tracker": "https://github.com/humbertogontijo/homeassistant-nespresso-prodigio/issues",
+  "dependencies": [
+    "bluetooth"
+  ],
+  "version": "1.0.1",
+  "iot_class": "local_polling",
+  "codeowners": [
+    "@humbertogontijo"
+  ]
+}
