@@ -31,7 +31,7 @@ async def async_setup_entry(
     async_add_devices(
         [
             NespressoSwitch(
-                device.name, device, coordinator.api, coordinator
+                "nespresso_" + device.name, device, coordinator.api, coordinator
             )
             for device in coordinator.api.devices
         ]

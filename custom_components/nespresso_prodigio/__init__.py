@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers import device_registry as dr
 
 from .const import CONF_ENTRY_AUTH_KEY
 from .const import DOMAIN, PLATFORMS
@@ -42,12 +43,25 @@ async def async_setup_entry(
 
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
-    for platform in PLATFORMS:
-        if entry.options.get(platform, True):
-            coordinator.platforms.append(platform)
-            hass.async_create_task(
-                hass.config_entries.async_forward_entry_setup(entry, platform)
-            )
+    for device in coordinator.api.devices:
+        device_registry = dr.async_get(hass)
+        device_registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            connections={(dr.CONNECTION_NETWORK_MAC, device.address)},
+            identifiers={(DOMAIN, device.address)},
+            manufacturer="Nespresso",
+            suggested_area="Kitchen",
+            name=device.name,
+            model="Prodigio",
+            # sw_version=config.swversion,
+            # hw_version=config.hwversion,
+        )
+        for platform in PLATFORMS:
+            if entry.options.get(platform, True):
+                coordinator.platforms.append(platform)
+                hass.async_create_task(
+                    hass.config_entries.async_forward_entry_setup(entry, platform)
+                )
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
