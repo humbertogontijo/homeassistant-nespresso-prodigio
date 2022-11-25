@@ -317,7 +317,6 @@ async def main():
         await client.discover_nespresso_devices()
         for bundle in client.bundles:
             device = bundle.device
-            await client.make_coffee(device)
             _LOGGER.info("{}".format(device))
 
         await client.get_device_data()

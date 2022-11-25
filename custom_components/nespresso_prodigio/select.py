@@ -34,7 +34,7 @@ class NespressoSelect(SelectEntity):
     def __init__(self, bundle: NespressoDeviceBundle):
         self._bundle = bundle
         self._attr_options = [str(e.value) for e in NespressoVolume]
-        self._attr_current_option = str(NespressoVolume.LUNGO)
+        self._attr_current_option = str(NespressoVolume.LUNGO.value)
         self.select_option(self._attr_current_option)
 
     def select_option(self, option: str) -> None:
@@ -47,7 +47,7 @@ class NespressoSelect(SelectEntity):
             name=self._bundle.device.name,
             identifiers={(DOMAIN, self._bundle.device.address)},
             manufacturer="Nespresso",
-            model="Prodigio"
+            model="Prodigio",
         )
 
     @property
