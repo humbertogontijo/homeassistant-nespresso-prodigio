@@ -92,7 +92,7 @@ class NespressoSwitch(SwitchEntity, ABC):
     async def async_turn_on(self, **kwargs: Any) -> None:
         self._attr_is_on = True
         await self._client.make_coffee(
-            self._bundle.device, self._bundle.selected_volume.current_option.lower()
+            self._bundle.device, self._bundle.selected_volume
         )
         self._attr_is_on = False
 
