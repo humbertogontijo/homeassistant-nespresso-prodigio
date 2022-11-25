@@ -27,9 +27,11 @@ async def async_setup_entry(
 
 
 class NespressoSelect(SelectEntity):
+    def select_option(self, option: str) -> None:
+        pass
+
     def __init__(self):
-        self.entity_description = SelectEntityDescription()
-        self.entity_description.options = ["Ristretto", "Espresso", "Lungo"]
+        self._attr_options = ["Ristretto", "Espresso", "Lungo"]
 
     @property
     def unique_id(self) -> str:
