@@ -78,7 +78,7 @@ class NespressoDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.debug("Getting info about device(s)")
             await self.api.get_device_data()
         except Exception as exception:
-            raise UpdateFailed() from exception
+            raise UpdateFailed(exception) from exception
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
