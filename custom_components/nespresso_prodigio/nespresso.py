@@ -13,7 +13,7 @@ from bleak import BleakClient, BLEDevice, BleakScanner, BleakGATTCharacteristic
 _LOGGER = logging.getLogger(__name__)
 
 CHAR_UUID_MANUFACTURER_NAME = "06aa3a41-f22a-11e3-9daa-0002a5d5c51b"
-CHAR_UUID_STATE = "06aa3a12-f22a-11e3-9daa-0002a5d5c51b"
+CHAR_UUID_STATUS = "06aa3a12-f22a-11e3-9daa-0002a5d5c51b"
 CHAR_UUID_NBCAPS = "06aa3a15-f22a-11e3-9daa-0002a5d5c51b"
 CHAR_UUID_SLIDER = "06aa3a22-f22a-11e3-9daa-0002a5d5c51b"
 CHAR_UUID_WATER_HARDNESS = "06aa3a44-f22a-11e3-9daa-0002a5d5c51b"
@@ -59,7 +59,7 @@ class NespressoDeviceInfo:
 
 BYTE = Flags()
 sensors_characteristics_uuid = [
-    CHAR_UUID_STATE,
+    CHAR_UUID_STATUS,
     CHAR_UUID_NBCAPS,
     CHAR_UUID_SLIDER,
     CHAR_UUID_WATER_HARDNESS,
@@ -127,7 +127,7 @@ class BaseDecode:
 
 
 sensor_decoders = {
-    str(CHAR_UUID_STATE): BaseDecode(name="state", format_type="state"),
+    str(CHAR_UUID_STATUS): BaseDecode(name="state", format_type="state"),
     str(CHAR_UUID_NBCAPS): BaseDecode(name="caps_number", format_type="caps_number"),
     str(CHAR_UUID_SLIDER): BaseDecode(name="slider", format_type="slider"),
     str(CHAR_UUID_WATER_HARDNESS): BaseDecode(
@@ -165,6 +165,24 @@ class BLEClientWrapper:
                 else:
                     raise e
         return self._client
+
+    async def read_gatt_char(
+            self,
+            char_specifier: Union[BleakGATTCharacteristic, int, str, uuid.UUID],
+            retries=RETRIES_NUMBER,
+            **kwargs,
+    ) -> bytearray:
+        client = await self._get_client()
+        try:
+            return await client.read_gatt_char(
+                char_specifier, **kwargs
+            )
+        except Exception as e:
+            if retries > 0:
+                await asyncio.sleep(SLEEP_TIME)
+                return await self.read_gatt_char(char_specifier, retries - 1, **kwargs)
+            else:
+                raise e
 
     async def read_gatt_descriptor(self, handle: int, retries=RETRIES_NUMBER, **kwargs) -> bytearray:
         client = await self._get_client()
@@ -222,19 +240,10 @@ class NespressoClient:
         self._client_pool = BLEClientPool()
 
     async def _authenticate(self, client: BLEClientWrapper, tries=0):
-        try:
-            # Write the auth code from android or Ios apps to the specific UUID to allow catching value from the machine
-            await client.write_gatt_char(
-                CHAR_UUID_AUTH, binascii.unhexlify(self._auth_code), True
-            )
-        except Exception as e:
-            _LOGGER.exception("Failed to send auth code, retrying in 5s", e)
-            time.sleep(5)  # wait 5s
-            if tries < 3:
-                _LOGGER.exception("Failed to send auth code, 3 times")
-                await self._authenticate(client, tries + 1)  # retry
-            else:
-                _LOGGER.exception("Failed to send auth code, more than 3 times")
+        # Write the auth code from android or Ios apps to the specific UUID to allow catching value from the machine
+        await client.write_gatt_char(
+            CHAR_UUID_AUTH, binascii.unhexlify(self._auth_code), True
+        )
 
     async def discover_nespresso_devices(self):
         # Scan for devices and try to figure out if it is an Nespresso device.
@@ -259,25 +268,25 @@ class NespressoClient:
                     for characteristic in service.characteristics:
                         _LOGGER.debug("characteristic {}".format(characteristic))
                         try:
-                            for descriptor in characteristic.descriptors:
-                                descriptor_data = await client.read_gatt_descriptor(
-                                    descriptor.handle
+                            if characteristic.uuid in sensor_decoders:
+                                await self._authenticate(client)
+                                characteristic_data = await client.read_gatt_char(
+                                    characteristic.uuid
                                 )
-                                if characteristic.uuid in sensor_decoders:
-                                    _LOGGER.debug(
-                                        "{} data {}".format(
-                                            characteristic.uuid, descriptor_data
-                                        )
+                                _LOGGER.debug(
+                                    "{} data {}".format(
+                                        characteristic.uuid, characteristic_data
                                     )
-                                    decoded_data = sensor_decoders[
-                                        characteristic.uuid
-                                    ].decode_data(descriptor_data)
-                                    _LOGGER.debug(
-                                        "{} Got sensordata {}".format(
-                                            device.address, decoded_data
-                                        )
+                                )
+                                decoded_data = sensor_decoders[
+                                    characteristic.uuid
+                                ].decode_data(characteristic_data)
+                                _LOGGER.debug(
+                                    "{} Got sensordata {}".format(
+                                        device.address, decoded_data
                                     )
-                                    device.attributes = decoded_data
+                                )
+                                device.attributes = {**device.attributes, **decoded_data}
                         except Exception as e:
                             _LOGGER.exception("Failed to read characteristic", e)
             except Exception as e:
@@ -319,7 +328,6 @@ async def main():
         client = NespressoClient(scanner, "87302f3c2b62e4f0")
         await client.discover_nespresso_devices()
         for dev in client.devices:
-            await client.make_coffee(dev)
             _LOGGER.info("{}".format(dev))
 
         await client.get_device_data()
