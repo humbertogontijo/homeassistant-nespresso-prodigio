@@ -13,6 +13,7 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import format_mac
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
@@ -50,6 +51,16 @@ class NespressoSwitch(SwitchEntity, ABC):
         self._bundle = bundle
         self._client = client
         _LOGGER.debug("Added sensor entity {}".format(self._name))
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return the device info."""
+        return DeviceInfo(
+            name=self._bundle.device.name,
+            identifiers={(DOMAIN, self._bundle.device.address)},
+            manufacturer="Nespresso",
+            model="Prodigio"
+        )
 
     @property
     def name(self):

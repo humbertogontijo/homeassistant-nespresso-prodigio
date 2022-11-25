@@ -3,6 +3,7 @@ import logging
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
@@ -38,6 +39,16 @@ class NespressoSelect(SelectEntity):
 
     def select_option(self, option: str) -> None:
         self._bundle.selected_volume = option
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return the device info."""
+        return DeviceInfo(
+            name=self._bundle.device.name,
+            identifiers={(DOMAIN, self._bundle.device.address)},
+            manufacturer="Nespresso",
+            model="Prodigio"
+        )
 
     @property
     def unique_id(self) -> str:
