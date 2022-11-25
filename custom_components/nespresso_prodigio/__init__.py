@@ -43,25 +43,23 @@ async def async_setup_entry(
 
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
-    for device in coordinator.api.devices:
-        device_registry = dr.async_get(hass)
-        device_registry.async_get_or_create(
-            config_entry_id=entry.entry_id,
-            connections={(dr.CONNECTION_NETWORK_MAC, device.address)},
-            identifiers={(DOMAIN, device.address)},
-            manufacturer="Nespresso",
-            suggested_area="Kitchen",
-            name=device.name,
-            model="Prodigio",
-            # sw_version=config.swversion,
-            # hw_version=config.hwversion,
-        )
+    for bundle in coordinator.api.bundles:
+        device = bundle.device
         for platform in PLATFORMS:
             if entry.options.get(platform, True):
                 coordinator.platforms.append(platform)
                 hass.async_create_task(
                     hass.config_entries.async_forward_entry_setup(entry, platform)
                 )
+        device_registry = dr.async_get(hass)
+        device_registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            connections={(dr.CONNECTION_NETWORK_MAC, device.address)},
+            identifiers={(DOMAIN, device.address)},
+            manufacturer="Nespresso",
+            name=device.name,
+            model="Prodigio"
+        )
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
@@ -82,7 +80,7 @@ class NespressoDataUpdateCoordinator(DataUpdateCoordinator):
         try:
             await self.api.discover_nespresso_devices()
 
-            if len(self.api.devices) == 0:
+            if len(self.api.bundles) == 0:
                 raise ConfigEntryNotReady(
                     "No bluetooth scanner detected. \
                     Enable the bluetooth integration or ensure an esphome device \

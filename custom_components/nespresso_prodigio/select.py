@@ -1,11 +1,12 @@
 import logging
 
-from homeassistant.components.select import SelectEntity, SelectEntityDescription
+from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
+from .nespresso import NespressoVolumeSelect
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,12 +26,16 @@ async def async_setup_entry(
     coordinator.get_select = get_select
     async_add_devices([nespresso_select])
 
+    selects = []
 
-class NespressoSelect(SelectEntity):
+    for bundle in coordinator.api.bundles:
+        bundle.volume_select = NespressoVolumeSelect()
+        selects.append(bundle.volume_select)
 
-    def __init__(self):
-        self._attr_options = ["Ristretto", "Espresso", "Lungo"]
-        self._attr_current_option = "Lungo"
+    async_add_devices(selects)
+
+
+class NespressoSelect(SelectEntity, NespressoVolumeSelect):
 
     def select_option(self, option: str) -> None:
         pass

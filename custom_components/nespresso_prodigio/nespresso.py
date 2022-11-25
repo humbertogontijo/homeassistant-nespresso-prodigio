@@ -1,16 +1,16 @@
 import asyncio
 import ctypes
-import inspect
 import logging
-import time
 import uuid
-from collections import namedtuple
-from typing import Coroutine, Union
+from enum import Enum
+from typing import Union
 
 import binascii
 from bleak import BleakClient, BLEDevice, BleakScanner, BleakGATTCharacteristic
 
 _LOGGER = logging.getLogger(__name__)
+
+c_uint8 = ctypes.c_uint8
 
 CHAR_UUID_MANUFACTURER_NAME = "06aa3a41-f22a-11e3-9daa-0002a5d5c51b"
 CHAR_UUID_STATUS = "06aa3a12-f22a-11e3-9daa-0002a5d5c51b"
@@ -21,9 +21,14 @@ CHAR_UUID_AUTH = "06aa3a41-f22a-11e3-9daa-0002a5d5c51b"
 CHAR_UUID_COMMAND = "06aa3a42-f22a-11e3-9daa-0002a5d5c51b"
 CHAR_UUID_SERVICE = "06aa1910-f22a-11e3-9daa-0002a5d5c51b"
 
-Characteristic = namedtuple("Characteristic", ["uuid", "name", "format"])
+RETRIES_NUMBER = 3
+SLEEP_TIME = 3
 
-c_uint8 = ctypes.c_uint8
+
+class NespressoVolume(Enum):
+    RISTRETTO = "Ristretto"
+    ESPRESSO = "Espresso"
+    LUNGO = "Lungo"
 
 
 class FlagsBits(ctypes.LittleEndianStructure):
@@ -44,6 +49,9 @@ class Flags(ctypes.Union):
     _fields_ = [("bit", FlagsBits), ("asByte", c_uint8)]
 
 
+BYTE = Flags()
+
+
 class NespressoDeviceInfo:
     def __init__(self, manufacturer="", serial_nr="", model_nr="", device_name=""):
         self.manufacturer = manufacturer
@@ -55,17 +63,6 @@ class NespressoDeviceInfo:
         return "Manufacturer: {} Model: {} Serial: {} Device:{}".format(
             self.manufacturer, self.model_nr, self.serial_nr, self.device_name
         )
-
-
-BYTE = Flags()
-sensors_characteristics_uuid = [
-    CHAR_UUID_STATUS,
-    CHAR_UUID_NBCAPS,
-    CHAR_UUID_SLIDER,
-    CHAR_UUID_WATER_HARDNESS,
-]
-
-sensors_characteristics_uuid_str = [str(x) for x in sensors_characteristics_uuid]
 
 
 class BaseDecode:
@@ -134,9 +131,6 @@ sensor_decoders = {
         name="water_hardness", format_type="water_hardness"
     ),
 }
-
-RETRIES_NUMBER = 3
-SLEEP_TIME = 3
 
 
 class BLEClientWrapper:
@@ -212,7 +206,7 @@ class BLEClientWrapper:
         except Exception as e:
             if retries > 0:
                 await asyncio.sleep(SLEEP_TIME)
-                return await client.write_gatt_char(
+                return await self.write_gatt_char(
                     char_specifier, data, response, retries - 1
                 )
             else:
@@ -231,36 +225,58 @@ class BLEClientPool:
         return client
 
 
+class NespressoVolumeSelect:
+
+    def __init__(self):
+        self._attr_options = [e.value for e in NespressoVolume]
+        self._attr_current_option = NespressoVolume.LUNGO
+
+    @property
+    def options(self):
+        return self._attr_options
+
+    @property
+    def current_option(self):
+        return self._attr_current_option
+
+
+class NespressoDeviceBundle:
+    def __init__(self, device: BLEDevice, attributes: dict):
+        self.device = device
+        self.attributes = attributes
+        self.selected_volume = NespressoVolumeSelect()
+
+
 class NespressoClient:
     def __init__(self, scanner: BleakScanner, auth_code: str) -> None:
         """Sample API Client."""
         self._scanner = scanner
         self._auth_code = auth_code
-        self.devices = []
+        self.bundles: list[NespressoDeviceBundle] = []
         self._client_pool = BLEClientPool()
 
-    async def _authenticate(self, client: BLEClientWrapper, tries=0):
+    async def _authenticate(self, client: BLEClientWrapper):
         # Write the auth code from android or Ios apps to the specific UUID to allow catching value from the machine
         await client.write_gatt_char(
             CHAR_UUID_AUTH, binascii.unhexlify(self._auth_code), True
         )
 
     async def discover_nespresso_devices(self):
-        # Scan for devices and try to figure out if it is an Nespresso device.
+        # Scan for devices and try to figure out if it is a Nespresso device.
         await self._scanner.discover()
         discovered_devices = self._scanner.discovered_devices
 
-        self.devices = []
+        self.bundles = []
 
         for device in discovered_devices:
             if CHAR_UUID_SERVICE in device.metadata.get("uuids"):
                 _LOGGER.debug("Found nespresso_prodigio device {}".format(device.address))
-                device.attributes = {}
-                self.devices.append(device)
-        _LOGGER.debug("Found {} Nespresso devices".format(len(self.devices)))
+                self.bundles.append(NespressoDeviceBundle(device, {}))
+        _LOGGER.debug("Found {} Nespresso devices".format(len(self.bundles)))
 
     async def get_device_data(self):
-        for device in self.devices:
+        for bundle in self.bundles:
+            device = bundle.device
             try:
                 client = self._client_pool.get_client(device)
                 services = await client.services
@@ -286,16 +302,16 @@ class NespressoClient:
                                         device.address, decoded_data
                                     )
                                 )
-                                device.attributes = {**device.attributes, **decoded_data}
+                                bundle.attributes = {**bundle.attributes, **decoded_data}
                         except Exception as e:
                             _LOGGER.exception("Failed to read characteristic", e)
             except Exception as e:
                 _LOGGER.exception("Failed to discover sensors", e)
 
     async def cancel_coffee(self, device: BLEDevice):
-        print()
+        pass
 
-    async def make_coffee(self, device: BLEDevice, volume="lungo"):
+    async def make_coffee(self, device: BLEDevice, volume: NespressoVolume = NespressoVolume.LUNGO):
         try:
             _LOGGER.debug("make flow a coffee")
             client = self._client_pool.get_client(device)
@@ -304,11 +320,11 @@ class NespressoClient:
                 command = "0305070400000000"
                 # TODO when temp will be used for other machine
                 command += "00"
-                if volume == "espresso":
+                if volume == NespressoVolume.ESPRESSO:
                     command += "01"
-                elif volume == "lungo":
+                elif volume == NespressoVolume.LUNGO:
                     command += "02"
-                elif volume == "ristretto":
+                elif volume == NespressoVolume.RISTRETTO:
                     command += "00"
                 else:
                     command += "00"
@@ -327,12 +343,14 @@ async def main():
     async with BleakScanner() as scanner:
         client = NespressoClient(scanner, "87302f3c2b62e4f0")
         await client.discover_nespresso_devices()
-        for dev in client.devices:
-            _LOGGER.info("{}".format(dev))
+        for bundle in client.bundles:
+            device = bundle.device
+            _LOGGER.info("{}".format(device))
 
         await client.get_device_data()
-        for device in client.devices:
-            for name, val in device.attributes.items():
+        for bundle in client.bundles:
+            device = bundle.device
+            for name, val in bundle.attributes.items():
                 _LOGGER.info("{}: {}: {}".format(device.address, name, val))
 
 

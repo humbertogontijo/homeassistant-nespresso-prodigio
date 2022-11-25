@@ -9,47 +9,46 @@ import logging
 from abc import ABC
 from typing import Any
 
-from bleak import BLEDevice
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .nespresso import NespressoClient
+from .nespresso import NespressoClient, NespressoDeviceBundle
 
 _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_devices: AddEntitiesCallback,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        async_add_devices: AddEntitiesCallback,
 ):
     """Set up the Nespresso sensor."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_devices(
         [
             NespressoSwitch(
-                "nespresso_" + device.name, device, coordinator.api, coordinator
+                bundle, coordinator.api
             )
-            for device in coordinator.api.devices
+            for bundle in coordinator.api.bundles
         ]
     )
 
 
 class NespressoSwitch(SwitchEntity, ABC):
-    """General Representation of an Nespresso sensor."""
+    """General Representation of a Nespresso sensor."""
 
     def __init__(
-        self, name: str, device: BLEDevice, client: NespressoClient, coordinator
+            self, bundle: NespressoDeviceBundle, client: NespressoClient
     ):
         """Initialize a sensor."""
         self._attr_is_on = False
-        self._name = name
-        self._device = device
+        self._name = "nespresso_" + bundle.device.name
+        self._bundle = bundle
         self._client = client
-        self._coordinator = coordinator
         _LOGGER.debug("Added sensor entity {}".format(self._name))
 
     @property
@@ -63,7 +62,7 @@ class NespressoSwitch(SwitchEntity, ABC):
 
     @property
     def unique_id(self):
-        return self._name
+        return format_mac(self._bundle.device.address)
 
     @property
     def is_on(self) -> bool:
@@ -77,17 +76,17 @@ class NespressoSwitch(SwitchEntity, ABC):
         Implemented by component base class, should not be extended by integrations.
         Convention for attribute names is lowercase snake_case.
         """
-        return self._device.attributes
+        return self._bundle.attributes
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         self._attr_is_on = True
         await self._client.make_coffee(
-            self._device, self._coordinator.get_select().current_option.lower()
+            self._bundle.device, self._bundle.selected_volume.current_option.lower()
         )
         self._attr_is_on = False
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the entity off."""
         if self._attr_is_on:
-            await self._client.cancel_coffee(self._device)
+            await self._client.cancel_coffee(self._bundle.device)
         self._attr_is_on = False
