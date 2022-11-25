@@ -225,26 +225,11 @@ class BLEClientPool:
         return client
 
 
-class NespressoVolumeSelect:
-
-    def __init__(self):
-        self._attr_options = [e.value for e in NespressoVolume]
-        self._attr_current_option = NespressoVolume.LUNGO
-
-    @property
-    def options(self):
-        return self._attr_options
-
-    @property
-    def current_option(self):
-        return self._attr_current_option
-
-
 class NespressoDeviceBundle:
     def __init__(self, device: BLEDevice, attributes: dict):
         self.device = device
         self.attributes = attributes
-        self.selected_volume = NespressoVolumeSelect()
+        self.selected_volume: NespressoVolume = None
 
 
 class NespressoClient:

@@ -6,7 +6,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .nespresso import NespressoVolumeSelect
+from .nespresso import NespressoVolume, NespressoDeviceBundle
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,27 +18,26 @@ async def async_setup_entry(
 ):
     """Set up the Nespresso sensor."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    nespresso_select = NespressoSelect()
-
-    def get_select():
-        return nespresso_select
-
-    coordinator.get_select = get_select
-    async_add_devices([nespresso_select])
-
-    selects = []
-
-    for bundle in coordinator.api.bundles:
-        bundle.volume_select = NespressoVolumeSelect()
-        selects.append(bundle.volume_select)
-
-    async_add_devices(selects)
+    async_add_devices(
+        [
+            NespressoSelect(
+                bundle
+            )
+            for bundle in coordinator.api.bundles
+        ]
+    )
 
 
-class NespressoSelect(SelectEntity, NespressoVolumeSelect):
+class NespressoSelect(SelectEntity):
+
+    def __init__(self, bundle: NespressoDeviceBundle):
+        self._bundle = bundle
+        self._attr_options = [str(e.value) for e in NespressoVolume]
+        self._attr_current_option = str(NespressoVolume.LUNGO)
+        self.select_option(self._attr_current_option)
 
     def select_option(self, option: str) -> None:
-        pass
+        self._bundle.selected_volume = option
 
     @property
     def unique_id(self) -> str:
