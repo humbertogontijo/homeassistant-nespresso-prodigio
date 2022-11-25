@@ -20,9 +20,7 @@ SCAN_INTERVAL = timedelta(seconds=30)
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(
-        hass: HomeAssistant, entry: ConfigEntry
-) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up nespresso_prodigio from a config entry."""
     _LOGGER.debug(f"integration async setup entry: {entry.as_dict()}")
     hass.data.setdefault(DOMAIN, {})

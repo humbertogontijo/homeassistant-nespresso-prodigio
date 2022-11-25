@@ -21,8 +21,8 @@ CHAR_UUID_AUTH = "06aa3a41-f22a-11e3-9daa-0002a5d5c51b"
 CHAR_UUID_COMMAND = "06aa3a42-f22a-11e3-9daa-0002a5d5c51b"
 CHAR_UUID_SERVICE = "06aa1910-f22a-11e3-9daa-0002a5d5c51b"
 
-RETRIES_NUMBER = 3
-SLEEP_TIME = 3
+RETRIES_NUMBER = 5
+SLEEP_TIME = 5
 
 
 class NespressoVolume(Enum):
@@ -134,77 +134,138 @@ sensor_decoders = {
 
 
 class BLEClientWrapper:
-    def __init__(self, device: BLEDevice):
+    def __init__(self, device: BLEDevice, auth_code: str):
         self._device = device
-        self._client = BleakClient(self._device, self._disconnected_callback)
+        self._client = BleakClient(self._device)
+        self._auth_code = auth_code
+        self._authenticated = False
+        self._connected = False
 
     @property
     async def services(self):
         client = await self._get_client()
         return client.services
 
-    def _disconnected_callback(self: BleakClient):
-        self.connect()
+    async def _authenticate(self, retries=RETRIES_NUMBER):
+        if not self._authenticated:
+            client = self._client
+            try:
+                await client.write_gatt_char(
+                    CHAR_UUID_AUTH, binascii.unhexlify(self._auth_code), True
+                )
+            except Exception as e:
+                if retries > 0:
+                    self.validate_connection(e)
+                    _LOGGER.warning(
+                        "Authentication failed. Attempts left {}\n{}".format(
+                            retries, str(e)
+                        )
+                    )
+                    await asyncio.sleep(SLEEP_TIME)
+                    return await self._authenticate(retries - 1)
+                else:
+                    raise e
+            self._authenticated = True
+            _LOGGER.debug(
+                "Successfully authenticated to bluetooth client {}".format(
+                    self._authenticated
+                )
+            )
+
+    def validate_connection(self, e: Exception):
+        if str(e) == "Disconnected" or str(e) == "Not connected":
+            self._connected = False
+        if str(e).endswith("Insufficient authentication"):
+            self._authenticated = False
 
     async def _get_client(self, retries=RETRIES_NUMBER):
-        if not self._client.is_connected:
+        if not self._client.is_connected or not self._connected:
             try:
+                self._authenticated = False
+                _LOGGER.debug("Connecting to bluetooth device")
                 await self._client.connect()
                 if not self._client.is_connected:
                     raise Exception("Bluetooth connection failed")
+                self._connected = True
+                _LOGGER.debug(
+                    "Successfully connected to bluetooth client {}".format(
+                        self._client.is_connected
+                    )
+                )
             except Exception as e:
                 if retries > 0:
+                    self.validate_connection(e)
+                    _LOGGER.warning(
+                        "Connection reset, attempting reconnect. Attempts left {}\n{}".format(
+                            retries, str(e)
+                        )
+                    )
                     await asyncio.sleep(SLEEP_TIME)
                     return await self._get_client(retries - 1)
                 else:
                     raise e
+        if not self._authenticated:
+            await self._authenticate()
+
         return self._client
 
     async def read_gatt_char(
-            self,
-            char_specifier: Union[BleakGATTCharacteristic, int, str, uuid.UUID],
-            retries=RETRIES_NUMBER,
-            **kwargs,
+        self,
+        char_specifier: Union[BleakGATTCharacteristic, int, str, uuid.UUID],
+        retries=RETRIES_NUMBER,
+        **kwargs,
     ) -> bytearray:
         client = await self._get_client()
         try:
-            return await client.read_gatt_char(
-                char_specifier, **kwargs
-            )
+            return await client.read_gatt_char(char_specifier, **kwargs)
         except Exception as e:
             if retries > 0:
+                self.validate_connection(e)
+                _LOGGER.warning(
+                    "Read gatt char error. Attempts left {}\n{}".format(retries, str(e))
+                )
                 await asyncio.sleep(SLEEP_TIME)
                 return await self.read_gatt_char(char_specifier, retries - 1, **kwargs)
             else:
                 raise e
 
-    async def read_gatt_descriptor(self, handle: int, retries=RETRIES_NUMBER, **kwargs) -> bytearray:
+    async def read_gatt_descriptor(
+        self, handle: int, retries=RETRIES_NUMBER, **kwargs
+    ) -> bytearray:
         client = await self._get_client()
         try:
-            return await client.read_gatt_descriptor(
-                handle, **kwargs
-            )
+            return await client.read_gatt_descriptor(handle, **kwargs)
         except Exception as e:
             if retries > 0:
+                self.validate_connection(e)
+                _LOGGER.warning(
+                    "Read gatt descriptor error. Attempts left {}\n{}".format(
+                        retries, str(e)
+                    )
+                )
                 await asyncio.sleep(SLEEP_TIME)
                 return await self.read_gatt_descriptor(handle, retries - 1, **kwargs)
             else:
                 raise e
 
     async def write_gatt_char(
-            self,
-            char_specifier: Union[BleakGATTCharacteristic, int, str, uuid.UUID],
-            data: Union[bytes, bytearray, memoryview],
-            response: bool = False,
-            retries=RETRIES_NUMBER
+        self,
+        char_specifier: Union[BleakGATTCharacteristic, int, str, uuid.UUID],
+        data: Union[bytes, bytearray, memoryview],
+        response: bool = False,
+        retries=RETRIES_NUMBER,
     ) -> None:
         client = await self._get_client()
         try:
-            return await client.write_gatt_char(
-                char_specifier, data, response
-            )
+            return await client.write_gatt_char(char_specifier, data, response)
         except Exception as e:
             if retries > 0:
+                self.validate_connection(e)
+                _LOGGER.warning(
+                    "Write gatt char error. Attempts left {}\n{}\n{}".format(
+                        retries, str(e), self._client.is_connected
+                    )
+                )
                 await asyncio.sleep(SLEEP_TIME)
                 return await self.write_gatt_char(
                     char_specifier, data, response, retries - 1
@@ -214,13 +275,14 @@ class BLEClientWrapper:
 
 
 class BLEClientPool:
-    def __init__(self):
+    def __init__(self, auth_code: str):
+        self._auth_code = auth_code
         self._clients = {}
 
     def get_client(self, device: BLEDevice) -> BLEClientWrapper:
         client = self._clients.get(device.address)
         if client is None:
-            client = BLEClientWrapper(device)
+            client = BLEClientWrapper(device, self._auth_code)
             self._clients[device.address] = client
         return client
 
@@ -236,64 +298,62 @@ class NespressoClient:
     def __init__(self, scanner: BleakScanner, auth_code: str) -> None:
         """Sample API Client."""
         self._scanner = scanner
-        self._auth_code = auth_code
         self.bundles: list[NespressoDeviceBundle] = []
-        self._client_pool = BLEClientPool()
-
-    async def _authenticate(self, client: BLEClientWrapper):
-        # Write the auth code from android or Ios apps to the specific UUID to allow catching value from the machine
-        await client.write_gatt_char(
-            CHAR_UUID_AUTH, binascii.unhexlify(self._auth_code), True
-        )
+        self._client_pool = BLEClientPool(auth_code)
 
     async def discover_nespresso_devices(self):
         # Scan for devices and try to figure out if it is a Nespresso device.
         await self._scanner.discover()
         discovered_devices = self._scanner.discovered_devices
 
-        self.bundles = []
-
-        for device in discovered_devices:
-            if CHAR_UUID_SERVICE in device.metadata.get("uuids"):
-                _LOGGER.debug("Found nespresso_prodigio device {}".format(device.address))
-                self.bundles.append(NespressoDeviceBundle(device, {}))
-        _LOGGER.debug("Found {} Nespresso devices".format(len(self.bundles)))
+        if discovered_devices is not None:
+            for device in discovered_devices:
+                if str(device.name).startswith("Prodigio"):
+                    _LOGGER.debug(
+                        "Found nespresso_prodigio device {}".format(device.address)
+                    )
+                    self.bundles.append(NespressoDeviceBundle(device, {}))
+            _LOGGER.debug("Found {} Nespresso devices".format(len(self.bundles)))
 
     async def get_device_data(self):
         for bundle in self.bundles:
             device = bundle.device
             client = self._client_pool.get_client(device)
             services = await client.services
-            for service in services:
-                for characteristic in service.characteristics:
-                    _LOGGER.debug("characteristic {}".format(characteristic))
-                    if characteristic.uuid in sensor_decoders:
-                        await self._authenticate(client)
-                        characteristic_data = await client.read_gatt_char(
-                            characteristic.uuid
-                        )
-                        _LOGGER.debug(
-                            "{} data {}".format(
-                                characteristic.uuid, characteristic_data
+            if services is not None:
+                for service in services:
+                    characteristics = service.characteristics
+                    if characteristics is None:
+                        continue
+                    for characteristic in service.characteristics:
+                        _LOGGER.debug("characteristic {}".format(characteristic))
+                        if characteristic.uuid in sensor_decoders:
+                            characteristic_data = await client.read_gatt_char(
+                                characteristic.uuid
                             )
-                        )
-                        decoded_data = sensor_decoders[
-                            characteristic.uuid
-                        ].decode_data(characteristic_data)
-                        _LOGGER.debug(
-                            "{} Got sensordata {}".format(
-                                device.address, decoded_data
+                            _LOGGER.debug(
+                                "{} data {}".format(
+                                    characteristic.uuid, characteristic_data
+                                )
                             )
-                        )
-                        bundle.attributes = {**bundle.attributes, **decoded_data}
+                            decoded_data = sensor_decoders[
+                                characteristic.uuid
+                            ].decode_data(characteristic_data)
+                            _LOGGER.debug(
+                                "{} Got sensordata {}".format(
+                                    device.address, decoded_data
+                                )
+                            )
+                            bundle.attributes = {**bundle.attributes, **decoded_data}
 
     async def cancel_coffee(self, device: BLEDevice):
         pass
 
-    async def make_coffee(self, device: BLEDevice, volume: NespressoVolume = NespressoVolume.LUNGO):
+    async def make_coffee(
+        self, device: BLEDevice, volume: NespressoVolume = NespressoVolume.LUNGO
+    ):
         _LOGGER.debug("make flow a coffee")
         client = self._client_pool.get_client(device)
-        await self._authenticate(client)
         command = "0305070400000000"
         command += "00"
         if volume == NespressoVolume.ESPRESSO:
