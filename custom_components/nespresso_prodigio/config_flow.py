@@ -87,7 +87,7 @@ class NespressoFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 client = NespressoClient(scanner, auth_code)
                 await client.get_device_data()
             except BleakError as err:
-                _LOGGER.error(f"Bluetooth connection error while trying to scan: {err}")
+                _LOGGER.exception(err)
                 self._errors["base"] = "BleakError"
                 return False
             return True
